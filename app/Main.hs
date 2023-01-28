@@ -2,41 +2,56 @@
 
 module Main where
 
+import Data.List
+
 import System.Environment
 import System.Directory
 import System.IO
 import Control.Monad
 
+import Codec.Archive.Tar
 
+
+
+
+-- packs files from a cfg into a tar folder
+packCFG :: FilePath -> IO ()
+packCFG modlist = do
+    paths <- readsettings
+    
+    let kartFolder = head paths
+    let dlFolder = subDirectory kartFolder "Download"
+    
+    
+    let destination = subDirectory dlFolder modlist
+    let cfgdestination = subDirectory dlFolder "CFGs"
+    
+   
+    
+    setCurrentDirectory kartFolder
+    
+    
+    files <- modfiles modlist
+    
+    
+    let (homeFiles, dlFiles) = partition storedInHome files
+    
+    
+
+    let tarball = (subDirectory kartFolder modlist) ++ ".tar"
+    -- creates a tarball, grabs the files from home
+    -- then appends the files from download
+    create (tarball) kartFolder homeFiles
+    append (tarball) dlFolder   dlFiles
+    
+    
+    
 main :: IO ()
 main = do
     modlist:args <- getArgs -- get name of cfg file
     
-    paths <- readsettings -- get file paths
+    packCFG modlist
     
-    let kartFolder = head paths
-    putStrLn kartFolder
-    let dlFolder = kartFolder ++ "/Download"
-    
-    
-    
-    createDirectoryIfMissing False (dlFolder++"/"++modlist) -- create destination folder
-    createDirectoryIfMissing False (dlFolder++"/"++modlist++"/CFGs") -- and cfg destination folder
-    
-    let destination = dlFolder ++ "/" ++ modlist
-    
-    putStrLn "Getting list of mods..."
-    setCurrentDirectory kartFolder
-    
-    
-    copyFile modlist (destination++"/CFGs/"++modlist) -- copy cfg file to dest
-    files <- modfiles modlist -- get list of mods
-    
-   
-    setCurrentDirectory dlFolder -- move to download folder
-    mapM_ (copymod kartFolder destination) files
-    
-    putStrLn ("Copied contents of " ++ modlist ++ " to " ++ destination)
 
 
 -- grabs the destination from settings.txt
@@ -47,7 +62,6 @@ readsettings = do
     
     let paths = lines contents
     
-    print paths
     return paths
 
 -- grab cfgs and addons from a cfg file
@@ -64,7 +78,7 @@ modfiles filename = do
     -- recurses into referenced cfg files and adds them to mods list
     additionals <- mapM modfiles cfgs
     
-    return (foldl (++) files additionals) -- combine the additionals with the base list and wrap them for IO
+    return (nub $ foldl (++) files additionals) -- combine the additionals with the base list and wrap them for IO
     
     
 
@@ -72,8 +86,8 @@ modfiles filename = do
 copymod :: String -> String -> String -> IO ()
 copymod home dir mod = do
     let copyDest = if isCFG mod 
-                   then dir++"/CFGs/"++mod
-                   else dir++"/"++mod
+                   then subDirectory dir ("CFGs/"++mod)
+                   else subDirectory dir mod
     
     alreadyThere <- doesFileExist copyDest
     --putStrLn mod
@@ -91,12 +105,18 @@ storedInHome file
     | file == "bonuschars.kart" = True
     | drop (length file - 3) file `elem` ["cfg","soc"] = True
     | otherwise = False
+    
+
 
 
 
 
 isCFG :: FilePath -> Bool
 isCFG file = drop (length file - 3) file == "cfg"
+
+-- i wrote this because i am sick of writing ++"/" to piece together folders manually
+subDirectory :: FilePath -> String -> FilePath
+subDirectory main sub = main ++ "/" ++ sub
     
     
     
