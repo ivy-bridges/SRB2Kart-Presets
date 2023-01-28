@@ -16,21 +16,22 @@ import qualified Codec.Compression.GZip as GZ
 main :: IO ()
 main = do
     modlist:args <- getArgs -- get name of cfg file
+    tarball <- packCFG modlist
     
-    packCFG modlist
+    let tarDestination = take (length modlist - 4) modlist ++ ".tar.gz"
+    
+    putStrLn $ "Writing to " ++ tarDestination ++ "..."
+    BS.writeFile tarDestination tarball
 
 
--- packs files from a cfg into a compressed tar folder
-packCFG :: FilePath -> IO ()
+-- packs files from a cfg into a compressed tar.gz file
+packCFG :: FilePath -> IO BS.ByteString
 packCFG modlist = do
     paths <- readsettings
     
     let kartFolder = head paths
         dlFolder = subDirectory kartFolder "Download"
-        -- chop off the .cfg extension and replace with .tar.gz
-        tarDestination = take (length modlist - 4) modlist ++ ".tar.gz"
-    
-   
+        
     
     setCurrentDirectory kartFolder -- move to kart folder
     files <- modfiles modlist      -- and grab the list of files from the cfg
@@ -45,8 +46,7 @@ packCFG modlist = do
     let fullArchive = homeEntries ++ dlEntries -- combine and compress the archive
         compressedTar = (GZ.compress . Tar.write) fullArchive
     
-    putStrLn "Packing .tar archive..."
-    BS.writeFile tarDestination compressedTar
+    return (compressedTar)
     
     
     
