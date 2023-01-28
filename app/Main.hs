@@ -9,40 +9,45 @@ import System.Directory
 import System.IO
 import Control.Monad
 
-import Codec.Archive.Tar
+import qualified Codec.Archive.Tar as Tar
+import qualified Data.ByteString.Lazy as BS
+import qualified Codec.Compression.GZip as GZ
 
 
 
 
--- packs files from a cfg into a tar folder
+-- packs files from a cfg into a compressed tar folder
 packCFG :: FilePath -> IO ()
 packCFG modlist = do
     paths <- readsettings
     
     let kartFolder = head paths
-    let dlFolder = subDirectory kartFolder "Download"
-    
-    
-    let destination = subDirectory dlFolder modlist
-    let cfgdestination = subDirectory dlFolder "CFGs"
+        dlFolder = subDirectory kartFolder "Download"
+        
+        -- chop off the .cfg extension and replace with .tar
+        tarDestination = take (length modlist - 4) modlist ++ ".tar.gz"
     
    
     
-    setCurrentDirectory kartFolder
+    setCurrentDirectory kartFolder -- move to kart folder
+    files <- modfiles modlist      -- and grab the list of files from the cfg
+    
+    -- some are stored in the home folder (cfgs, socs, bonuschars) while some are in downloads
+    let (homeFiles, dlFiles) = partition storedInHome files 
     
     
-    files <- modfiles modlist
+    
+    -- grabs the files from home
+    -- and files from download
+    homeEntries <- Tar.pack kartFolder homeFiles -- Tar.pack :: FilePath -> [FilePath] -> IO [Entry]
+    dlEntries   <- Tar.pack dlFolder   dlFiles 
     
     
-    let (homeFiles, dlFiles) = partition storedInHome files
+    let fullArchive = homeEntries ++ dlEntries
+        compressedTar = (GZ.compress . Tar.write) fullArchive
     
-    
-
-    let tarball = (subDirectory kartFolder modlist) ++ ".tar"
-    -- creates a tarball, grabs the files from home
-    -- then appends the files from download
-    create (tarball) kartFolder homeFiles
-    append (tarball) dlFolder   dlFiles
+    putStrLn "Packing .tar archive..."
+    BS.writeFile tarDestination compressedTar
     
     
     
@@ -67,6 +72,7 @@ readsettings = do
 -- grab cfgs and addons from a cfg file
 modfiles :: FilePath -> IO [String]
 modfiles filename = do
+    putStrLn ("Grabbing filenames from " ++ filename ++ "...")
     contents <- readFile filename
     let commands = lines contents  
         execs = filter (\i -> take 4 i == "exec") commands -- only lines starting with exec. these denote additional cfg files
@@ -74,11 +80,14 @@ modfiles filename = do
         
         addfiles = filter (\i -> take 7 i == "addfile") commands -- only lines starting with "addfile"
         files = cfgs ++ (map (drop 8) addfiles) -- just get the filename
+        
+        runsocs = filter (\i -> take 6 i == "runsoc") commands -- only lines starting with runsoc. these denote soc files
+        socs = map (drop 7) runsocs -- just get the file name
     
     -- recurses into referenced cfg files and adds them to mods list
     additionals <- mapM modfiles cfgs
     
-    return (nub $ foldl (++) files additionals) -- combine the additionals with the base list and wrap them for IO
+    return (nub $ concat [files,socs, concat additionals]) -- combine the additionals with the base list and wrap them for IO
     
     
 
