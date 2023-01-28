@@ -16,12 +16,7 @@ import qualified Codec.Compression.GZip as GZ
 main :: IO ()
 main = do
     modlist:args <- getArgs -- get name of cfg file
-    tarball <- packCFG modlist
-    
-    let tarDestination = take (length modlist - 4) modlist ++ ".tar.gz"
-    
-    putStrLn $ "Writing to " ++ tarDestination ++ "..."
-    BS.writeFile tarDestination tarball
+    unpackPreset modlist
 
 
 -- packs files from a cfg into a compressed tar.gz file
@@ -47,9 +42,28 @@ packCFG modlist = do
         compressedTar = (GZ.compress . Tar.write) fullArchive
     
     return (compressedTar)
+ 
+-- given a compressed preset, decompress and read the contents
+-- TODO : copy files that don't already exist, and create a .bat file to launch the game with this preset
+unpackPreset :: FilePath -> IO ()
+unpackPreset filename = do
+    paths <- readsettings
+    let kartFolder = head paths
     
+    setCurrentDirectory kartFolder
     
+    contents <- BS.readFile filename
     
+    let decompressed = GZ.decompress contents
+        tarEntries = Tar.read decompressed
+        
+        -- accumulate the entryPath of each entry, ignoring errors
+        names = Tar.foldEntries ((:) . Tar.entryPath) [] (\e -> []) tarEntries
+        
+    print names
+    
+
+
 
     
 
