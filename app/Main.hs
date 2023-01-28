@@ -3,6 +3,7 @@
 module Main where
 
 import Data.List
+import Data.Either
 
 import System.Environment
 import System.Directory
@@ -10,13 +11,26 @@ import System.IO
 import Control.Monad
 
 import qualified Codec.Archive.Tar as Tar
+import qualified Codec.Archive.Tar.Entry as Tar
+
 import qualified Data.ByteString.Lazy as BS
 import qualified Codec.Compression.GZip as GZ
+
+import qualified Data.Text.Lazy as T
+import Data.Text.Lazy.Encoding (encodeUtf8)
 
 main :: IO ()
 main = do
     modlist:args <- getArgs -- get name of cfg file
-    unpackPreset modlist
+    
+    tarball <- packCFG modlist
+    
+    let tarLocation = take (length modlist - 4) modlist ++ ".tar.gz"
+    
+    BS.writeFile tarLocation tarball
+    
+    
+    unpackPreset tarLocation
 
 
 -- packs files from a cfg into a compressed tar.gz file
@@ -27,9 +41,8 @@ packCFG modlist = do
     let kartFolder = head paths
         dlFolder = subDirectory kartFolder "Download"
         
-    
-    setCurrentDirectory kartFolder -- move to kart folder
-    files <- modfiles modlist      -- and grab the list of files from the cfg
+    -- move into kart's folder to grab list of files from cfg
+    files <- withCurrentDirectory kartFolder (modfiles modlist) 
     
     -- some are stored in the home folder (cfgs, socs, bonuschars) while some are in downloads
     let (homeFiles, dlFiles) = partition storedInHome files 
@@ -38,7 +51,14 @@ packCFG modlist = do
     homeEntries <- Tar.pack kartFolder homeFiles -- Tar.pack :: FilePath -> [FilePath] -> IO [Entry]
     dlEntries   <- Tar.pack dlFolder   dlFiles 
     
-    let fullArchive = homeEntries ++ dlEntries -- combine and compress the archive
+    
+    -- toTarPath returns an Either value, where a Left denotes an error and a Right returns a tarPath
+    -- i don't actually know how you're supposed to handle this Either when you can't construct a default tarPath value    
+    -- so it throws an error instead
+    let infoPath      = either (error "Invalid Path") (id) (Tar.toTarPath False (modlist++".info"))
+        infoEntry     = Tar.fileEntry infoPath (packString modlist)
+        
+        fullArchive   = infoEntry:(homeEntries ++ dlEntries) -- combine and compress the archive
         compressedTar = (GZ.compress . Tar.write) fullArchive
     
     return (compressedTar)
@@ -50,20 +70,28 @@ unpackPreset filename = do
     paths <- readsettings
     let kartFolder = head paths
     
-    setCurrentDirectory kartFolder
+    -- move into kart's folder to read the file
+    contents <- withCurrentDirectory kartFolder (BS.readFile filename)
     
-    contents <- BS.readFile filename
-    
+        
     let decompressed = GZ.decompress contents
         tarEntries = Tar.read decompressed
         
         -- accumulate the entryPath of each entry, ignoring errors
         names = Tar.foldEntries ((:) . Tar.entryPath) [] (\e -> []) tarEntries
+        infoName = filter (isSuffixOf ".info") names
         
     print names
+    print infoName
     
 
-
+-- packs a string to a bytestring
+-- this is used to store the name of the main cfg in the compressed file
+packString :: String -> BS.ByteString
+packString = encodeUtf8 . T.pack
+    
+    
+    
 
     
 
