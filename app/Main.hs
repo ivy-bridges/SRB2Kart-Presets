@@ -16,18 +16,21 @@ import qualified Codec.Archive.Tar.Entry as Tar
 import qualified Data.ByteString.Lazy as BS
 import qualified Codec.Compression.GZip as GZ
 
-import qualified Data.Text.Lazy as T
-import Data.Text.Lazy.Encoding (encodeUtf8)
+import qualified Data.Text.Lazy as Text
+import Data.Text.Lazy.Encoding (encodeUtf8, decodeUtf8)
 
 main :: IO ()
 main = do
     modlist:args <- getArgs -- get name of cfg file
+    paths <- readsettings
     
-    tarball <- packCFG modlist
     
-    let tarLocation = take (length modlist - 4) modlist ++ ".tar.gz"
     
-    BS.writeFile tarLocation tarball
+    
+    let tarLocation = take (length modlist - 4) modlist ++ ".tgz"
+        kartFolder = head paths
+    
+    
     
     
     unpackPreset tarLocation
@@ -55,7 +58,7 @@ packCFG modlist = do
     -- toTarPath returns an Either value, where a Left denotes an error and a Right returns a tarPath
     -- i don't actually know how you're supposed to handle this Either when you can't construct a default tarPath value    
     -- so it throws an error instead
-    let infoPath      = either (error "Invalid Path") (id) (Tar.toTarPath False (modlist++".info"))
+    let infoPath      = either (error "Invalid Path") (id) (Tar.toTarPath False ("preset.info"))
         infoEntry     = Tar.fileEntry infoPath (packString modlist)
         
         fullArchive   = infoEntry:(homeEntries ++ dlEntries) -- combine and compress the archive
@@ -64,7 +67,8 @@ packCFG modlist = do
     return (compressedTar)
  
 -- given a compressed preset, decompress and read the contents
--- TODO : copy files that don't already exist, and create a .bat file to launch the game with this preset
+-- copies files that don't already exist,
+-- TODO : create a .bat file to launch the game with this preset
 unpackPreset :: FilePath -> IO ()
 unpackPreset filename = do
     paths <- readsettings
@@ -77,21 +81,65 @@ unpackPreset filename = do
     let decompressed = GZ.decompress contents
         tarEntries = Tar.read decompressed
         
-        -- accumulate the entryPath of each entry, ignoring errors
-        names = Tar.foldEntries ((:) . Tar.entryPath) [] (\e -> []) tarEntries
-        infoName = filter (isSuffixOf ".info") names
+        -- accumulate the individual entries, ignoring errors
+        entryList = Tar.foldEntries (:) [] (\e -> []) tarEntries
         
-    print names
-    print infoName
+        entryNames = map (Tar.entryPath) entryList
+        entryContents = map (grabContents . Tar.entryContent) entryList
+        
+        infoName = filter (isSuffixOf ".info") entryNames
+        
+        entries = zip entryNames entryContents
+        (infoEntries, dataEntries) = partition (\(f,c) -> ".info" `isSuffixOf` f) entries
+        
+        
+        
+        presetName = (Text.unpack . decodeUtf8) $ (snd . head) infoEntries
+        unpackFolder = take (length presetName - 4) presetName
     
+        
+    
+    mapM_ (copymod unpackFolder) dataEntries
+    
+
+
+-- given destination and a pair (filename, contents), copies contents to filename in destination if necessary
+-- socs, cfgs, and bonuschars.kart go in the home
+-- other files are placed in a folder with the cfg name
+copymod :: FilePath -> (FilePath, BS.ByteString) -> IO ()
+copymod destination (filename, contents) = do
+    paths <- readsettings
+    let kartFolder = head paths
+        dlFolder = subDirectory kartFolder "Download"
+    
+    -- places to search for the file
+    let searchLocations
+            | storedInHome filename = [kartFolder]
+            | otherwise = [subDirectory dlFolder destination, dlFolder]
+
+
+    findResults <- findFiles searchLocations filename
+    let needToCopy      = null findResults -- if none are found, we need to copy the file
+        copyDestination = subDirectory (head searchLocations) filename   -- into the correct destination
+    --putStrLn mod
+    --print (storedInHome mod)
+
+    
+    when needToCopy $ withCurrentDirectory kartFolder (do
+        createDirectoryIfMissing False (head searchLocations)
+        BS.writeFile copyDestination contents)
 
 -- packs a string to a bytestring
 -- this is used to store the name of the main cfg in the compressed file
 packString :: String -> BS.ByteString
-packString = encodeUtf8 . T.pack
+packString = encodeUtf8 . Text.pack
     
     
-    
+-- grab the contents from a tar archive entry
+-- im not sure if matching against the constructor like this is good form. but it works
+grabContents :: Tar.EntryContent -> BS.ByteString
+grabContents (Tar.NormalFile c _) = c
+grabContents _ = BS.empty
 
     
 
@@ -114,7 +162,8 @@ modfiles filename = do
         socs     = grabCommands "runsoc" commands
         addfiles = grabCommands "addfile" commands
         
-        files = cfgs ++ socs ++ addfiles
+        -- we also grab the cfg in question
+        files = filename:(cfgs ++ socs ++ addfiles)
     
     -- recurses into referenced cfg files and adds them to mods list
     additionals <- mapM modfiles cfgs
@@ -140,9 +189,12 @@ grabCommands prefix commands = map (drop $ length prefix + 1) matches
     where matches = filter (isPrefixOf prefix) commands
 
 
+
 -- i wrote this because i am sick of writing ++"/" to piece together folders manually
 subDirectory :: FilePath -> String -> FilePath
 subDirectory main sub = main ++ "/" ++ sub
+
+
     
     
     
