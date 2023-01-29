@@ -24,16 +24,15 @@ main = do
     modlist:args <- getArgs -- get name of cfg file
     paths <- readsettings
     
-    
+    tarball <- packCFG modlist
     
     
     let tarLocation = take (length modlist - 4) modlist ++ ".tgz"
         kartFolder = head paths
     
+    withCurrentDirectory kartFolder (BS.writeFile tarLocation tarball)
     
-    
-    
-    unpackPreset tarLocation
+    --unpackPreset tarLocation
 
 
 -- packs files from a cfg into a compressed tar.gz file
@@ -44,15 +43,32 @@ packCFG modlist = do
     let kartFolder = head paths
         dlFolder = subDirectory kartFolder "Download"
         
+        cfgName = take (length modlist - 4) modlist
+        presetFolder = subDirectory dlFolder cfgName
+        
     -- move into kart's folder to grab list of files from cfg
     files <- withCurrentDirectory kartFolder (modfiles modlist) 
     
     -- some are stored in the home folder (cfgs, socs, bonuschars) while some are in downloads
-    let (homeFiles, dlFiles) = partition storedInHome files 
+    let (homeFiles, dlFiles) = partition storedInHome files
+    
+    -- we check the downloads folder as well as the preset folder for non-home files
+    inPreset    <- withCurrentDirectory (presetFolder) (filterM doesFileExist dlFiles)
+    inDownloads <- withCurrentDirectory (dlFolder)     (filterM doesFileExist dlFiles)
+    -- doesFileExist returns False for invalid directories (when no preset exists)
+    -- in that case, presetEntries is the empty list []
+    
+    print inPreset
+    print inDownloads
+    
     -- grabs the files from home
     -- and files from download
-    homeEntries <- Tar.pack kartFolder homeFiles -- Tar.pack :: FilePath -> [FilePath] -> IO [Entry]
-    dlEntries   <- Tar.pack dlFolder   dlFiles 
+    -- also tries to grab files from preset folder if that exists
+    homeEntries   <- Tar.pack kartFolder   homeFiles -- Tar.pack :: FilePath -> [FilePath] -> IO [Entry]
+    dlEntries     <- Tar.pack dlFolder     inDownloads
+    presetEntries <- Tar.pack presetFolder inPreset
+    
+    
     
     
     -- toTarPath returns an Either value, where a Left denotes an error and a Right returns a tarPath
@@ -61,7 +77,7 @@ packCFG modlist = do
     let infoPath      = either (error "Invalid Path") (id) (Tar.toTarPath False ("preset.info"))
         infoEntry     = Tar.fileEntry infoPath (packString modlist)
         
-        fullArchive   = infoEntry:(homeEntries ++ dlEntries) -- combine and compress the archive
+        fullArchive   = infoEntry:(homeEntries ++ dlEntries ++ presetEntries) -- combine and compress the archive
         compressedTar = (GZ.compress . Tar.write) fullArchive
     
     return (compressedTar)
@@ -101,6 +117,7 @@ unpackPreset filename = do
     
     mapM_ (copymod unpackFolder) dataEntries
     
+
 
 
 -- given destination and a pair (filename, contents), copies contents to filename in destination if necessary
