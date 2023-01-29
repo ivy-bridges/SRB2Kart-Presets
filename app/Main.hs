@@ -24,13 +24,13 @@ main = do
     modlist:args <- getArgs -- get name of cfg file
     paths <- readsettings
     
-    tarball <- packCFG modlist
+    
     
     
     let tarLocation = take (length modlist - 4) modlist ++ ".tgz"
         kartFolder = head paths
     
-    withCurrentDirectory kartFolder (BS.writeFile tarLocation tarball)
+    unpackPreset tarLocation
     
     --unpackPreset tarLocation
 
@@ -68,9 +68,6 @@ packCFG modlist = do
     dlEntries     <- Tar.pack dlFolder     inDownloads
     presetEntries <- Tar.pack presetFolder inPreset
     
-    
-    
-    
     -- toTarPath returns an Either value, where a Left denotes an error and a Right returns a tarPath
     -- i don't actually know how you're supposed to handle this Either when you can't construct a default tarPath value    
     -- so it throws an error instead
@@ -83,8 +80,7 @@ packCFG modlist = do
     return (compressedTar)
  
 -- given a compressed preset, decompress and read the contents
--- copies files that don't already exist,
--- TODO : create a .bat file to launch the game with this preset
+-- copies files that don't already exist, and creates a launcher
 unpackPreset :: FilePath -> IO ()
 unpackPreset filename = do
     paths <- readsettings
@@ -97,28 +93,49 @@ unpackPreset filename = do
     let decompressed = GZ.decompress contents
         tarEntries = Tar.read decompressed
         
-        -- accumulate the individual entries, ignoring errors
+        -- the Tar package uses a special Entries datatype
+        -- accumulate the individual entries into an [Entry], ignoring errors
         entryList = Tar.foldEntries (:) [] (\e -> []) tarEntries
         
         entryNames = map (Tar.entryPath) entryList
         entryContents = map (grabContents . Tar.entryContent) entryList
         
+        -- find the file containing preset information
         infoName = filter (isSuffixOf ".info") entryNames
         
+        -- split the info entry off from the rest
         entries = zip entryNames entryContents
         (infoEntries, dataEntries) = partition (\(f,c) -> ".info" `isSuffixOf` f) entries
         
+        -- read the info entry to get the name of the preset
+        presetFile = (Text.unpack . decodeUtf8) $ (snd . head) infoEntries
+        presetName = take (length presetFile - 4) presetFile
         
-        
-        presetName = (Text.unpack . decodeUtf8) $ (snd . head) infoEntries
-        unpackFolder = take (length presetName - 4) presetName
+        launcherFile = "Launch with " ++ presetName ++ ".bat"
     
         
+    -- copy the files to the correct locations if necessary
+    mapM_ (copymod presetName) dataEntries
     
-    mapM_ (copymod unpackFolder) dataEntries
+    -- and create the launcher
+    launcherString <- createLauncher presetFile
+    withCurrentDirectory kartFolder (writeFile launcherFile launcherString)
     
-
-
+    
+    
+    
+    
+-- creates a bat file to launch the game with the preset
+createLauncher :: FilePath -> IO String
+createLauncher cfgFile = do
+    paths <- readsettings
+    let kartLauncher = paths !! 1
+        
+        batchContents = "@echo off\nSTART " ++ kartLauncher ++ " +exec " ++ cfgFile
+    
+    return batchContents
+      
+    
 
 -- given destination and a pair (filename, contents), copies contents to filename in destination if necessary
 -- socs, cfgs, and bonuschars.kart go in the home
@@ -204,6 +221,7 @@ storedInHome file
 grabCommands :: String -> [String] -> [String]
 grabCommands prefix commands = map (drop $ length prefix + 1) matches
     where matches = filter (isPrefixOf prefix) commands
+
 
 
 
