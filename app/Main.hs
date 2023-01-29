@@ -42,13 +42,13 @@ main = do
     when packingCFG (do
         let tarLocation = take (length inputFile - 4) inputFile ++ ".tgz"
         
-        putStrLn ("Packing " ++ inputFile ++ " to " ++ tarLocation ++ "...\n")
+        putStrLn ("\nPacking " ++ inputFile ++ " to " ++ tarLocation ++ "...")
         
         tarball <- packCFG inputFile
         withCurrentDirectory kartFolder (BS.writeFile tarLocation tarball))
         
     when unpackingTGZ (do
-        putStrLn ("Unpacking " ++ inputFile ++ "...\n")
+        putStrLn ("\nUnpacking " ++ inputFile ++ "...\n")
         unpackPreset inputFile)
         
     -- close the program if something was done 
@@ -81,7 +81,12 @@ packCFG modlist = do
     -- doesFileExist returns False for invalid directories (when no preset folder exists)
     -- in that case, presetEntries is the empty list []
     
-
+    
+    -- sometimes, we don't find everything. this happens if files are in a folder in downloads outside of the preset
+    when (length dlFiles > (length inPreset + length inDownloads)) (do
+        putStrLn ("Not all files were found.")
+        putStrLn ("Make sure mods are either placed in " ++ dlFolder)
+        putStrLn ("or placed in " ++ presetFolder ++ "."))
     -- grabs the files from home
     -- and files from download
     -- also tries to grab files from preset folder if that exists
@@ -262,7 +267,9 @@ grabCommands prefix commands = map (drop $ length prefix + 1) matches
 
 -- i wrote this because i am sick of writing ++"/" to piece together folders manually
 subDirectory :: FilePath -> String -> FilePath
-subDirectory main sub = main ++ "/" ++ sub
+subDirectory main sub
+    | "/" `isSuffixOf` main = main ++ sub
+    | otherwise             = main ++ "/" ++ sub
 
 
     
