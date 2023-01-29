@@ -8,6 +8,8 @@ import Data.Either
 import System.Environment
 import System.Directory
 import System.IO
+import System.Exit
+
 import Control.Monad
 
 import qualified Codec.Archive.Tar as Tar
@@ -21,18 +23,37 @@ import Data.Text.Lazy.Encoding (encodeUtf8, decodeUtf8)
 
 main :: IO ()
 main = do
-    modlist:args <- getArgs -- get name of cfg file
     paths <- readsettings
+  
+    let kartFolder = head paths
+    
+   
     
     
+    putStrLn ("Type the name of a .cfg file to pack it and its referenced mods into a preset.")
+    putStrLn ("Type the name of a .tgz file to unpack it and create a launcher.")
     
+    inputFile <- getLine
     
-    let tarLocation = take (length modlist - 4) modlist ++ ".tgz"
-        kartFolder = head paths
+    let packingCFG   = ".cfg" `isSuffixOf` inputFile
+        unpackingTGZ = ".tgz" `isSuffixOf` inputFile
+        
+
+    when packingCFG (do
+        let tarLocation = take (length inputFile - 4) inputFile ++ ".tgz"
+        
+        putStrLn ("Packing " ++ inputFile ++ " to " ++ tarLocation ++ "...\n")
+        
+        tarball <- packCFG inputFile
+        withCurrentDirectory kartFolder (BS.writeFile tarLocation tarball))
+        
+    when unpackingTGZ (do
+        putStrLn ("Unpacking " ++ inputFile ++ "...\n")
+        unpackPreset inputFile)
+        
+    -- close the program if something was done 
+    unless (packingCFG || unpackingTGZ) main
     
-    unpackPreset tarLocation
-    
-    --unpackPreset tarLocation
 
 
 -- packs files from a cfg into a compressed tar.gz file
@@ -52,15 +73,15 @@ packCFG modlist = do
     -- some are stored in the home folder (cfgs, socs, bonuschars) while some are in downloads
     let (homeFiles, dlFiles) = partition storedInHome files
     
+    
+    
     -- we check the downloads folder as well as the preset folder for non-home files
-    inPreset    <- withCurrentDirectory (presetFolder) (filterM doesFileExist dlFiles)
-    inDownloads <- withCurrentDirectory (dlFolder)     (filterM doesFileExist dlFiles)
-    -- doesFileExist returns False for invalid directories (when no preset exists)
+    inPreset    <- withCurrentDirectory (dlFolder) (filterM doesFileExist (map (subDirectory presetFolder) dlFiles))
+    inDownloads <- withCurrentDirectory (dlFolder) (filterM doesFileExist dlFiles)
+    -- doesFileExist returns False for invalid directories (when no preset folder exists)
     -- in that case, presetEntries is the empty list []
     
-    print inPreset
-    print inDownloads
-    
+
     -- grabs the files from home
     -- and files from download
     -- also tries to grab files from preset folder if that exists
@@ -181,13 +202,27 @@ grabContents _ = BS.empty
 -- grabs the destination from settings.txt
 readsettings :: IO [String]
 readsettings = do
-    contents <- readFile "settings.txt"
-    return (lines contents)
+    settingsExists <- doesFileExist "settings.txt"
+    
+    if settingsExists
+        then do
+            contents <- readFile "settings.txt"
+            return (lines contents)
+        else do
+            putStrLn ("This program requires a settings.txt file to be placed in its directory.")
+            putStrLn ("\nThis file should have a path to the folder containing SRB2Kart on the first line,")
+            putStrLn ("and the name of the .exe file on the second line.")
+            
+            die ""
+            return []
+            
+    
+  
 
 -- grab cfgs and addons from a cfg file
 modfiles :: FilePath -> IO [String]
 modfiles filename = do
-    putStrLn ("Grabbing filenames from " ++ filename ++ "...")
+    --putStrLn ("Grabbing filenames from " ++ filename ++ "...")
     contents <- readFile filename
     let commands = lines contents
         
