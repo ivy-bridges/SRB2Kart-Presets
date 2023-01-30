@@ -174,7 +174,7 @@ copymod destination (filename, contents) = do
     
     -- places to search for the file
     let searchLocations
-            | storedInHome filename = [kartFolder]
+            | storedInHome filename = [kartFolder, dlFolder]
             | otherwise = [subDirectory dlFolder destination, dlFolder]
 
 
