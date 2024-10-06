@@ -31,7 +31,7 @@ main = do
     
     
     putStrLn ("Type the name of a .cfg file to pack it and its referenced mods into a preset.")
-    putStrLn ("Type the name of a .tgz file to unpack it into the addons folder.")
+    putStrLn ("Type the name of a .tgz file to unpack it and create a launcher.")
     
     inputFile <- getLine
     
@@ -144,8 +144,8 @@ unpackPreset filename = do
     mapM_ (copymod presetName) dataEntries
     
     -- and create the launcher
-    -- launcherString <- createLauncher presetFile
-    -- withCurrentDirectory kartFolder (writeFile launcherFile launcherString)
+    launcherString <- createLauncher presetFile
+    withCurrentDirectory kartFolder (writeFile launcherFile launcherString)
     
     
     
